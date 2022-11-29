@@ -1,0 +1,8 @@
+https://www.google.com/search?name=golang&language=en&mascot=gopher
+https://go.dev/play/
+google.com
+postgres://user2:passmethesalt@host.com:5432/path?k=vvvaluessss
+https://www.google.com
+/foo/bar
+https://www.example.com/
+postgres://user:pass@host.com:5432/path?k=v#f
