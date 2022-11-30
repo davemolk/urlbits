@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
@@ -11,18 +12,18 @@ import (
 
 type config struct {
 	domains bool
-	file string
-	keys bool
-	kv bool
-	paths bool
-	save bool
-	user bool
-	values bool
+	file    string
+	keys    bool
+	kv      bool
+	paths   bool
+	save    bool
+	user    bool
+	values  bool
 	verbose bool
 }
 
 type urlbits struct {
-	config config 
+	config config
 }
 
 func main() {
@@ -32,46 +33,74 @@ func main() {
 	flag.BoolVar(&config.keys, "keys", false, "output keys")
 	flag.BoolVar(&config.kv, "kv", false, "output keys and values")
 	flag.BoolVar(&config.paths, "paths", false, "output paths")
-	flag.BoolVar(&config.save, "save", true, "print output to file")
+	flag.BoolVar(&config.save, "save", true, "save output to file")
 	flag.BoolVar(&config.user, "user", false, "output username and password")
 	flag.BoolVar(&config.values, "values", false, "output values")
 	flag.BoolVar(&config.verbose, "verbose", false, "verbose output")
 	flag.Parse()
-	
-	// prob don't need
+
 	ub := &urlbits{
 		config: config,
 	}
 
 	ch, err := ub.read()
 	if err != nil {
-		log.Fatal("read failed: ", err)
+		log.Fatal("read failed", err)
 	}
-	
+
+	f, err := os.Create("results.txt")
+	if err != nil {
+		log.Fatal("unable to create file", err)
+	}
+	defer f.Close()
+
 	switch {
 	case config.domains:
 		for d := range ub.domains(ub.parsed(ch)) {
 			fmt.Println(d)
+			if config.save {
+				ub.write(f, d)
+			}
 		}
 	case config.keys:
 		for k := range ub.keys(ub.kvMap(ub.parsed(ch))) {
 			fmt.Println(k)
+			if config.save {
+				ub.write(f, k)
+			}
 		}
 	case config.kv:
 		for kv := range ub.kvMap(ub.parsed(ch)) {
 			fmt.Println(kv)
+			if config.save {
+				data, err := json.Marshal(kv)
+				if err != nil {
+					log.Printf("unable to marshal data: %v", err)
+					continue
+				}
+				ub.write(f, string(data))
+			}
 		}
 	case config.paths:
 		for p := range ub.paths(ub.parsed(ch)) {
 			fmt.Println(p)
+			if config.save {
+				ub.write(f, p)
+			}
 		}
 	case config.user:
 		for u := range ub.user(ub.parsed(ch)) {
 			fmt.Println(u)
+			if config.save {
+				ub.write(f, u.String())
+			}
 		}
 	case config.values:
 		for v := range ub.values(ub.kvMap(ub.parsed(ch))) {
 			fmt.Println(v)
+			if config.save {
+				ub.write(f, v)
+			}
 		}
 	}
 }
@@ -94,6 +123,7 @@ func (ub *urlbits) read() (<-chan string, error) {
 
 func (ub *urlbits) parsed(urls <-chan string) <-chan *url.URL {
 	ch := make(chan *url.URL)
+
 	go func() {
 		defer close(ch)
 		for u := range urls {
@@ -174,6 +204,7 @@ func (ub *urlbits) kvMap(urls <-chan *url.URL) <-chan url.Values {
 
 func (ub *urlbits) keys(kvMap <-chan url.Values) <-chan string {
 	ch := make(chan string)
+
 	go func() {
 		defer close(ch)
 		for kv := range kvMap {
@@ -187,15 +218,23 @@ func (ub *urlbits) keys(kvMap <-chan url.Values) <-chan string {
 
 func (ub *urlbits) values(kvMap <-chan url.Values) <-chan string {
 	ch := make(chan string)
+
 	go func() {
 		defer close(ch)
 		for kv := range kvMap {
 			for _, value := range kv {
 				for _, v := range value {
 					ch <- v
-				} 
+				}
 			}
 		}
 	}()
 	return ch
+}
+
+func (ub *urlbits) write(f *os.File, s string) {
+	_, err := fmt.Fprintf(f, "%v\n", s)
+	if err != nil {
+		log.Printf("error writing %s: %v\n", s, err)
+	}
 }
