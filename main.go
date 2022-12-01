@@ -26,6 +26,19 @@ type urlbits struct {
 	config config
 }
 
+// User field has been changed from *Userinfo found in the source code. 
+type URL struct {
+	Scheme      string `json:"scheme,omitempty"`
+	Opaque      string `json:"opaque,omitempty"`    // encoded opaque data
+	User        string  `json:"user,omitempty"` // username and password information
+	Host        string `json:"host,omitempty"`   // host or host:port
+	Path        string `json:"path,omitempty"`    // path (relative paths may omit leading slash)
+	RawPath     string  `json:"raw_path,omitempty"`  // encoded path hint (see EscapedPath method)
+	RawQuery    string `json:"raw_query,omitempty"`   // encoded query values, without '?'
+	Fragment    string `json:"fragment,omitempty"`   // fragment for references, without '#'
+	RawFragment string `json:"raw_fragment,omitempty"`   // encoded fragment hint (see EscapedFragment method)
+}
+
 func main() {
 	var config config
 	flag.BoolVar(&config.domains, "domains", false, "output domains")
@@ -48,12 +61,15 @@ func main() {
 		log.Fatal("read failed", err)
 	}
 
-	f, err := os.Create("results.txt")
-	if err != nil {
-		log.Fatal("unable to create file", err)
+	var f *os.File
+	if config.save {
+		f, err = os.Create("results.txt")
+		if err != nil {
+			log.Fatal("unable to create file", err)
+		}
+		defer f.Close()
 	}
-	defer f.Close()
-
+	
 	switch {
 	case config.domains:
 		for d := range ub.domains(ub.parsed(ch)) {
@@ -102,6 +118,30 @@ func main() {
 				ub.write(f, v)
 			}
 		}
+	default:
+		for u := range ub.parsed(ch) {
+			url := &URL{
+				Scheme: u.Scheme,
+				Opaque: u.Opaque,
+				User: u.User.String(),
+				Host: u.Host,
+				Path: u.Path,
+				RawPath: u.RawPath,
+				RawQuery: u.RawQuery,
+				Fragment: u.Fragment,
+				RawFragment: u.RawFragment,
+			}
+
+			data, err := json.Marshal(url)
+			if err != nil {
+				log.Printf("unable to marshal: %v\n", err)
+				continue
+			}
+			fmt.Println(string(data))
+			ub.write(f, string(data))
+		}
+			
+		
 	}
 }
 
@@ -118,6 +158,7 @@ func (ub *urlbits) read() (<-chan string, error) {
 			log.Println(err)
 		}
 	}(ch)
+
 	return ch, nil
 }
 
@@ -127,7 +168,7 @@ func (ub *urlbits) parsed(urls <-chan string) <-chan *url.URL {
 	go func() {
 		defer close(ch)
 		for u := range urls {
-			s, err := url.ParseRequestURI(u)
+			s, err := url.ParseRequestURI(u) // switch to Parse?
 			if err != nil {
 				if ub.config.verbose {
 					log.Printf("parsing error for %s: %v\n", u, err)
@@ -152,6 +193,7 @@ func (ub *urlbits) user(urls <-chan *url.URL) <-chan *url.Userinfo {
 			}
 		}
 	}()
+
 	return ch
 }
 
@@ -164,6 +206,7 @@ func (ub *urlbits) domains(urls <-chan *url.URL) <-chan string {
 			ch <- u.Host
 		}
 	}()
+
 	return ch
 }
 
@@ -178,6 +221,7 @@ func (ub *urlbits) paths(urls <-chan *url.URL) <-chan string {
 			}
 		}
 	}()
+
 	return ch
 }
 
@@ -199,6 +243,7 @@ func (ub *urlbits) kvMap(urls <-chan *url.URL) <-chan url.Values {
 			}
 		}
 	}()
+
 	return ch
 }
 
@@ -213,6 +258,7 @@ func (ub *urlbits) keys(kvMap <-chan url.Values) <-chan string {
 			}
 		}
 	}()
+
 	return ch
 }
 
@@ -229,6 +275,7 @@ func (ub *urlbits) values(kvMap <-chan url.Values) <-chan string {
 			}
 		}
 	}()
+
 	return ch
 }
 
