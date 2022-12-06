@@ -11,44 +11,48 @@ import (
 )
 
 type config struct {
-	domains bool
-	file    string
-	keys    bool
-	kv      bool
-	paths   bool
-	save    bool
-	user    bool
-	values  bool
-	verbose bool
+	domains  bool
+	keys     bool
+	kv       bool
+	paths    bool
+	save     bool
+	user     bool
+	values   bool
+	validate bool
+	verbose  bool
 }
 
 type urlbits struct {
 	config config
 }
 
-// User field has been changed from *Userinfo found in the source code. 
+// A URL represents a parsed URL (technically, a URI reference).
+// version 1: [scheme:][//[userinfo@]host][/]path[?query][#fragment]
+// version 2: scheme:opaque[?query][#fragment]
+
+// Note: User field has been changed from the *Userinfo found in the source code.
 type URL struct {
 	Scheme      string `json:"scheme,omitempty"`
-	Opaque      string `json:"opaque,omitempty"`    // encoded opaque data
-	User        string  `json:"user,omitempty"` // username and password information
-	Host        string `json:"host,omitempty"`   // host or host:port
-	Path        string `json:"path,omitempty"`    // path (relative paths may omit leading slash)
-	RawPath     string  `json:"raw_path,omitempty"`  // encoded path hint (see EscapedPath method)
-	RawQuery    string `json:"raw_query,omitempty"`   // encoded query values, without '?'
-	Fragment    string `json:"fragment,omitempty"`   // fragment for references, without '#'
-	RawFragment string `json:"raw_fragment,omitempty"`   // encoded fragment hint (see EscapedFragment method)
+	Opaque      string `json:"opaque,omitempty"`       // encoded opaque data
+	User        string `json:"user,omitempty"`         // username and password information
+	Host        string `json:"host,omitempty"`         // host or host:port
+	Path        string `json:"path,omitempty"`         // path (relative paths may omit leading slash)
+	RawPath     string `json:"raw_path,omitempty"`     // encoded path hint (see EscapedPath method)
+	RawQuery    string `json:"raw_query,omitempty"`    // encoded query values, without '?'
+	Fragment    string `json:"fragment,omitempty"`     // fragment for references, without '#'
+	RawFragment string `json:"raw_fragment,omitempty"` // encoded fragment hint (see EscapedFragment method)
 }
 
 func main() {
 	var config config
 	flag.BoolVar(&config.domains, "domains", false, "output domains")
-	flag.StringVar(&config.file, "file", "", "name of file containing urls to parse")
 	flag.BoolVar(&config.keys, "keys", false, "output keys")
 	flag.BoolVar(&config.kv, "kv", false, "output keys and values")
 	flag.BoolVar(&config.paths, "paths", false, "output paths")
-	flag.BoolVar(&config.save, "save", true, "save output to file")
+	flag.BoolVar(&config.save, "save", false, "save output to file")
 	flag.BoolVar(&config.user, "user", false, "output username and password")
 	flag.BoolVar(&config.values, "values", false, "output values")
+	flag.BoolVar(&config.validate, "validate", false, "strip out urls without a scheme and host")
 	flag.BoolVar(&config.verbose, "verbose", false, "verbose output")
 	flag.Parse()
 
@@ -69,7 +73,7 @@ func main() {
 		}
 		defer f.Close()
 	}
-	
+
 	switch {
 	case config.domains:
 		for d := range ub.domains(ub.parsed(ch)) {
@@ -121,18 +125,18 @@ func main() {
 	default:
 		for u := range ub.parsed(ch) {
 			url := &URL{
-				Scheme: u.Scheme,
-				Opaque: u.Opaque,
-				User: u.User.String(),
-				Host: u.Host,
-				Path: u.Path,
-				RawPath: u.RawPath,
-				RawQuery: u.RawQuery,
-				Fragment: u.Fragment,
+				Scheme:      u.Scheme,
+				Opaque:      u.Opaque,
+				User:        u.User.String(),
+				Host:        u.Host,
+				Path:        u.Path,
+				RawPath:     u.RawPath,
+				RawQuery:    u.RawQuery,
+				Fragment:    u.Fragment,
 				RawFragment: u.RawFragment,
 			}
 
-			data, err := json.Marshal(url)
+			data, err := json.MarshalIndent(url, "", " ")
 			if err != nil {
 				log.Printf("unable to marshal: %v\n", err)
 				continue
@@ -140,8 +144,6 @@ func main() {
 			fmt.Println(string(data))
 			ub.write(f, string(data))
 		}
-			
-		
 	}
 }
 
@@ -155,7 +157,7 @@ func (ub *urlbits) read() (<-chan string, error) {
 			ch <- s.Text()
 		}
 		if err := s.Err(); err != nil && ub.config.verbose {
-			log.Println(err)
+			log.Printf("reading error: %v\n", err)
 		}
 	}(ch)
 
@@ -168,18 +170,35 @@ func (ub *urlbits) parsed(urls <-chan string) <-chan *url.URL {
 	go func() {
 		defer close(ch)
 		for u := range urls {
-			s, err := url.ParseRequestURI(u) // switch to Parse?
+			s, err := url.ParseRequestURI(u)
 			if err != nil {
 				if ub.config.verbose {
 					log.Printf("parsing error for %s: %v\n", u, err)
 				}
 				continue
 			}
-			ch <- s
+			if ub.config.validate {
+				s = ub.validate(s)
+			}
+			if s != nil {
+				ch <- s
+			}
 		}
 	}()
 
 	return ch
+}
+
+// validate performs a quick and dirty URL validation. While not
+// perfect, it's sufficient for the purposes of this program.
+func (ub *urlbits) validate(u *url.URL) *url.URL {
+	if u.Scheme != "" && u.Host != "" {
+		return u
+	}
+	if ub.config.verbose {
+		log.Printf("%v not valid url\n", u)
+	}
+	return nil
 }
 
 func (ub *urlbits) user(urls <-chan *url.URL) <-chan *url.Userinfo {
@@ -203,7 +222,9 @@ func (ub *urlbits) domains(urls <-chan *url.URL) <-chan string {
 	go func() {
 		defer close(ch)
 		for u := range urls {
-			ch <- u.Host
+			if u.Host != "" {
+				ch <- u.Host
+			}
 		}
 	}()
 
