@@ -31,6 +31,7 @@ type urlbits struct {
 // version 2: scheme:opaque[?query][#fragment]
 
 // Note: User field has been changed from the *Userinfo found in the source code.
+// Note note: nearly all of this is straight from the Go source code.
 type URL struct {
 	Scheme      string `json:"scheme,omitempty"`
 	Opaque      string `json:"opaque,omitempty"`       // encoded opaque data
@@ -60,12 +61,10 @@ func main() {
 		config: config,
 	}
 
-	ch, err := ub.read()
-	if err != nil {
-		log.Fatal("read failed", err)
-	}
+	ch := ub.read()
 
 	var f *os.File
+	var err error
 	if config.save {
 		f, err = os.Create("results.txt")
 		if err != nil {
@@ -136,18 +135,21 @@ func main() {
 				RawFragment: u.RawFragment,
 			}
 
-			data, err := json.MarshalIndent(url, "", " ")
+			data, err := json.MarshalIndent(url, "", "  ")
 			if err != nil {
 				log.Printf("unable to marshal: %v\n", err)
 				continue
 			}
 			fmt.Println(string(data))
-			ub.write(f, string(data))
+			if config.save {
+				ub.write(f, string(data))
+			}
 		}
 	}
 }
 
-func (ub *urlbits) read() (<-chan string, error) {
+// read information off stdin.
+func (ub *urlbits) read() <-chan string {
 	ch := make(chan string)
 	s := bufio.NewScanner(os.Stdin)
 
@@ -156,14 +158,17 @@ func (ub *urlbits) read() (<-chan string, error) {
 		for s.Scan() {
 			ch <- s.Text()
 		}
-		if err := s.Err(); err != nil && ub.config.verbose {
-			log.Printf("reading error: %v\n", err)
+		if err := s.Err(); err != nil {
+			log.Fatalf("reading error: %v\n", err)
 		}
 	}(ch)
 
-	return ch, nil
+	return ch
 }
 
+// parse input strings and output as *url.URL. I'm using
+// ParseRequestURI instead of Parse because it was a better
+// fit for my use-cases.
 func (ub *urlbits) parsed(urls <-chan string) <-chan *url.URL {
 	ch := make(chan *url.URL)
 
@@ -201,6 +206,7 @@ func (ub *urlbits) validate(u *url.URL) *url.URL {
 	return nil
 }
 
+// user returns a channel of *uurl.Userinfo.
 func (ub *urlbits) user(urls <-chan *url.URL) <-chan *url.Userinfo {
 	ch := make(chan *url.Userinfo)
 
@@ -216,6 +222,7 @@ func (ub *urlbits) user(urls <-chan *url.URL) <-chan *url.Userinfo {
 	return ch
 }
 
+// domains returns a string channel of u.Host.
 func (ub *urlbits) domains(urls <-chan *url.URL) <-chan string {
 	ch := make(chan string)
 
@@ -231,6 +238,7 @@ func (ub *urlbits) domains(urls <-chan *url.URL) <-chan string {
 	return ch
 }
 
+// paths returns a string channel of u.Path.
 func (ub *urlbits) paths(urls <-chan *url.URL) <-chan string {
 	ch := make(chan string)
 
@@ -246,6 +254,7 @@ func (ub *urlbits) paths(urls <-chan *url.URL) <-chan string {
 	return ch
 }
 
+// kvMap returns a channel of url.Values.
 func (ub *urlbits) kvMap(urls <-chan *url.URL) <-chan url.Values {
 	ch := make(chan url.Values)
 
@@ -268,6 +277,7 @@ func (ub *urlbits) kvMap(urls <-chan *url.URL) <-chan url.Values {
 	return ch
 }
 
+// keys returns a string channel featuring keys from the url.Values maps.
 func (ub *urlbits) keys(kvMap <-chan url.Values) <-chan string {
 	ch := make(chan string)
 
@@ -283,6 +293,7 @@ func (ub *urlbits) keys(kvMap <-chan url.Values) <-chan string {
 	return ch
 }
 
+// values returns a string channel featuring values from the url.Values maps.
 func (ub *urlbits) values(kvMap <-chan url.Values) <-chan string {
 	ch := make(chan string)
 
@@ -300,6 +311,7 @@ func (ub *urlbits) values(kvMap <-chan url.Values) <-chan string {
 	return ch
 }
 
+// write the results to a file.
 func (ub *urlbits) write(f *os.File, s string) {
 	_, err := fmt.Fprintf(f, "%v\n", s)
 	if err != nil {

@@ -1,9 +1,0 @@
-totaljunk
-localhost:5432/path
-javascript:alert(0)
-http:::/not.valid/a//a??a?b=&&c#hi
-http//google.com
-google.com
-/foo/bar
-http://google.com
-http://
