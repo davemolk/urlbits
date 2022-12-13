@@ -61,7 +61,7 @@ $ cat urls.txt | urlbits -paths
 First, you'll need to [install go](https://golang.org/doc/install). Then, run the following command:
 
 ```
-go install github.com/davemolk/urlbits
+go install github.com/davemolk/urlbits@latest
 ```
 
 ## Command-line Options
